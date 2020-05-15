@@ -13,6 +13,7 @@
 #include <mrpt/core/format.h>
 #include <mrpt/system/filesystem.h>
 #include <mrpt/system/os.h>
+#include <mrpt/system/string_utils.h>
 
 #ifndef HAVE_TIMEGM
 #endif  // HAVE_TIMEGM
@@ -44,6 +45,10 @@
 #include <cerrno>
 #include <ctime>
 //	#include <signal.h>
+#endif
+
+#ifdef MRPT_OS_LINUX
+#include <dlfcn.h>
 #endif
 
 #include <sys/stat.h>
@@ -811,3 +816,56 @@ int mrpt::system::executeCommand(
 	// Return exit code
 	return exit_code;
 }  // end of executeCommand
+
+MRPT_TODO("Offer unload methods");
+MRPT_TODO("Automatically unload remaining open modules upon program exit");
+
+bool mrpt::system::loadPluginModule(
+	const std::string& moduleFileName,
+	mrpt::optional_ref<std::string> outErrorMsgs)
+{
+#ifdef MRPT_OS_LINUX
+	void* handle = dlopen(moduleFileName.c_str(), RTLD_LAZY);
+
+	if (handle)
+	{
+		// TODO: register for future dlclose()
+		return true;
+	}
+
+	const auto sError = mrpt::format(
+		"Error loading '%s':\n%s\n", moduleFileName.c_str(), dlerror());
+#else
+	HMODULE handle = LoadLibraryA(moduleFileName.c_str());
+
+	if (handle)
+	{
+		// TODO: register for future dlclose()
+		return true;
+	}
+
+	const auto sError = mrpt::format(
+		"Error loading '%s':\nWindows error: %u\n", moduleFileName.c_str(),
+		GetLastError());
+#endif
+
+	if (outErrorMsgs)
+		outErrorMsgs.value().get() += sError;
+	else
+		std::cerr << sError;
+	return false;
+}
+
+bool mrpt::system::loadPluginModules(
+	const std::string& moduleFileNames,
+	mrpt::optional_ref<std::string> outErrorMsgs)
+{
+	std::vector<std::string> lstModules;
+	mrpt::system::tokenize(moduleFileNames, ",", lstModules);
+
+	bool allOk = true;
+	for (const auto& sLib : lstModules)
+		if (!loadPluginModule(sLib, outErrorMsgs)) allOk = false;
+
+	return allOk;
+}
